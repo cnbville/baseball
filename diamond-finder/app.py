@@ -10,6 +10,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 import diamond_finder as df
+import updater
+from version import __version__
 
 APP = "Diamond Finder"
 SUPPORT = os.path.expanduser(f"~/Library/Application Support/{APP}")
@@ -86,7 +88,7 @@ def md_to_html(md):
 class App:
     def __init__(self, root):
         self.root = root
-        root.title(APP)
+        root.title(f"{APP} {__version__}")
         root.geometry("820x600")
         self.stats = tk.StringVar()
         self.ratings = tk.StringVar()
@@ -113,6 +115,9 @@ class App:
         self.csv_btn = ttk.Button(b, text="Open CSV", command=self.open_csv, state="disabled")
         self.csv_btn.pack(side="left")
         ttk.Button(b, text="Edit presets", command=lambda: open_path(presets_path())).pack(side="left", padx=6)
+        self.update_btn = ttk.Button(b, text="Check for updates", command=lambda: self.check_updates(True))
+        self.update_btn.pack(side="left")
+        self.update_info = None
 
         self.text = tk.Text(f, wrap="word", height=20, font=("Menlo", 12))
         self.text.grid(row=4, column=0, columnspan=3, sticky="nsew")
@@ -120,6 +125,50 @@ class App:
         self.say("Pick your OOTP stats export (Player Search or draft pool with a stats view), "
                  "optionally the ratings export, then press Find diamonds.\n\n"
                  f"Presets live in {presets_path()}. Press Edit presets to change cutoffs and weights.")
+
+        root.after(1500, self.check_updates)
+
+    # ------------------------------------------------------------- updates
+    def check_updates(self, manual=False):
+        def work():
+            try:
+                info = updater.check()
+            except Exception as e:
+                info = e
+            self.root.after(0, self.got_update, info, manual)
+        threading.Thread(target=work, daemon=True).start()
+
+    def got_update(self, info, manual):
+        if isinstance(info, Exception):
+            if manual:
+                messagebox.showerror(APP, f"Couldn't reach GitHub to check for updates:\n{info}")
+            return
+        if not info:
+            if manual:
+                messagebox.showinfo(APP, f"You're on the latest version ({__version__}).")
+            return
+        version, url, notes = info
+        self.update_btn.config(text=f"Update to {version}")
+        msg = f"Version {version} is available (you have {__version__})."
+        if notes.strip():
+            msg += "\n\nWhat's new:\n" + notes.strip()[:800]
+        msg += "\n\nInstall it now? The app will close and reopen by itself."
+        if messagebox.askyesno(APP, msg):
+            self.install_update(url)
+
+    def install_update(self, url):
+        self.update_btn.config(state="disabled")
+        def work():
+            try:
+                updater.install(url, lambda m: self.root.after(0, self.say, m))
+                self.root.after(0, self.root.destroy)
+            except Exception as e:
+                self.root.after(0, self.update_failed, e)
+        threading.Thread(target=work, daemon=True).start()
+
+    def update_failed(self, e):
+        self.update_btn.config(state="normal")
+        messagebox.showerror(APP, f"Update didn't install:\n{e}")
 
     def say(self, msg):
         self.text.delete("1.0", "end")

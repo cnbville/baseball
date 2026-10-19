@@ -22,7 +22,7 @@ jobs:
         working-directory: diamond-finder
         run: |
           pyinstaller --noconfirm --windowed --name "Diamond Finder" \
-            --add-data "presets.json:." app.py
+            --add-data "presets.json:." --hidden-import updater --hidden-import version app.py
       - name: Make dmg
         run: |
           mkdir -p dmgroot
@@ -33,11 +33,16 @@ jobs:
         with:
           name: DiamondFinder-dmg
           path: DiamondFinder.dmg
-      - name: Publish to the diamond-finder release
+      - name: Publish a release for this version
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view diamond-finder >/dev/null 2>&1 || \
-            gh release create diamond-finder --target "$GITHUB_SHA" --title "Diamond Finder (Mac)" \
-              --notes "Latest Mac build of Diamond Finder. Download DiamondFinder.dmg below."
-          gh release upload diamond-finder DiamondFinder.dmg --clobber
+          VER=$(python -c "import sys; sys.path.insert(0, 'diamond-finder'); from version import __version__; print(__version__)")
+          TAG="diamond-finder-v$VER"
+          NOTES=$(git log -1 --format=%s)
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" DiamondFinder.dmg --clobber
+          else
+            gh release create "$TAG" DiamondFinder.dmg --target "$GITHUB_SHA" --latest \
+              --title "Diamond Finder $VER" --notes "$NOTES"
+          fi
