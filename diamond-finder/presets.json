@@ -1,81 +1,283 @@
 {
+  "presets_version": 2,
+
   "min_sample": {"pitcher_ip": 20, "hitter_pa": 60},
 
-  "pitcher_weights": {"kbb_pct": 0.50, "fip_minus": 0.35, "whip": 0.15},
-  "hitter_weights": {"ops_plus": 0.40, "iso": 0.20, "bb_pct": 0.20, "k_pct": 0.20},
+  "pitcher_weights": {"kbb_pct": 0.35, "fip_minus": 0.2, "siera": 0.15, "p_k_pct": 0.12, "whip": 0.1, "hr9": 0.08},
+
+  "hitter_weights": {"woba": 0.38, "iso": 0.2, "k_pct": 0.18, "bb_pct": 0.16, "sb_rate": 0.08},
+
+  "fallbacks": {"woba": ["ops_plus", "ops"], "ops_plus": ["ops"], "fip_minus": ["fip", "siera"], "siera": [], "p_k_pct": [], "kbb_pct": []},
 
   "shrink_k": {"pitcher_ip": 40, "hitter_pa": 120},
 
-  "competition_multipliers": {"Poor": 0.80, "Fair": 0.90, "Average": 1.00, "Good": 1.05, "Great": 1.10},
+  "competition_multipliers": {"Poor": 0.8, "Fair": 0.9, "Average": 1.0, "Good": 1.05, "Great": 1.1},
 
   "age": {"points_per_year": 5, "cap": 12},
 
+  "position_bonus": {"C": 4, "SS": 4, "CF": 3, "2B": 2, "3B": 1.5, "RF": 0.5, "LF": 0, "1B": -1, "DH": -2},
+
+  "lefty_pitcher_bonus": 2,
+
+  "luck": {"hitter_points_per_010": 0.4, "cap": 4, "pitcher_era_fip_note": 0.75},
+
   "labels": {
-    "diamond":   {"stat_min": 70, "age_bonus_min": 0, "scout_max": 60},
-    "confirmed": {"stat_min": 70, "scout_min": 67},
-    "trap":      {"stat_min": 70, "age_bonus_max": -3, "scout_max": 50},
-    "raw_tools": {"scout_min": 80, "stat_max": 40},
-    "stat_standout": {"stat_min": 70, "age_bonus_min": 0}
+      "diamond": {
+          "stat_min": 70,
+          "age_bonus_min": 0,
+          "scout_max": 60
+      },
+      "confirmed": {
+          "stat_min": 70,
+          "scout_min": 67
+      },
+      "trap": {
+          "stat_min": 70,
+          "age_bonus_max": -3,
+          "scout_max": 50
+      },
+      "raw_tools": {
+          "scout_min": 80,
+          "stat_max": 40
+      },
+      "stat_standout": {
+          "stat_min": 70,
+          "age_bonus_min": 0
+      }
   },
 
-  "scout_weights": {
-    "pitcher": {"stuff_pot": 0.45, "move_pot": 0.30, "control_pot": 0.25},
-    "hitter":  {"contact_pot": 0.25, "power_pot": 0.25, "gap_pot": 0.15, "eye_pot": 0.15, "ks_pot": 0.10, "babip_pot": 0.10}
-  },
+  "scout_weights": {"pitcher": {"stuff_pot": 0.45, "move_pot": 0.3, "control_pot": 0.25}, "hitter": {"contact_pot": 0.25, "power_pot": 0.25, "gap_pot": 0.15, "eye_pot": 0.15, "ks_pot": 0.1, "babip_pot": 0.1}},
+
   "scout_percentile_pool": "matched",
 
   "pitcher_positions": ["SP", "RP", "P", "CL", "MR"],
+
   "ratings_pitcher_position_codes": [1, 11, 12],
+
   "name_suffixes_to_drop": ["jr", "sr", "ii", "iii", "iv"],
 
   "report_top_n": 25,
+
   "small_group_warning": 8,
 
+  "important_columns": ["pos", "name", "age", "comp", "hsc", "pa", "bb", "k", "avg", "slg", "woba", "ip", "bf", "fip_minus", "whip", "kbb_pct", "siera", "hr9", "sb", "babip", "throws"],
+
   "column_aliases": {
-    "pos": ["POS", "Position"],
-    "name": ["Name", "Player"],
-    "age": ["Age"],
-    "school": ["Schl", "School", "Team", "TM", "ORG"],
-    "comp": ["COMP", "Competition"],
-    "hsc": ["HSC", "Class"],
-    "lev": ["Lev", "Level", "League", "Lg"],
-    "pa": ["PA"],
-    "ab": ["AB"],
-    "h": ["H"],
-    "hr": ["HR"],
-    "bb": ["BB"],
-    "k": ["K", "SO"],
-    "avg": ["AVG", "BA"],
-    "obp": ["OBP"],
-    "slg": ["SLG"],
-    "ops": ["OPS"],
-    "ops_plus": ["OPS+"],
-    "ip": ["IP"],
-    "bf": ["BF", "TBF"],
-    "g": ["G"],
-    "gs": ["GS"],
-    "era": ["ERA"],
-    "era_plus": ["ERA+"],
-    "fip": ["FIP"],
-    "fip_minus": ["FIP-"],
-    "whip": ["WHIP"],
-    "k9": ["K/9", "SO/9"],
-    "bb9": ["BB/9"],
-    "kbb_pct": ["K%-BB%", "K-BB%", "K%-BB"]
+      "pos": [
+          "POS",
+          "Position"
+      ],
+      "name": [
+          "Name",
+          "Player"
+      ],
+      "age": [
+          "Age"
+      ],
+      "school": [
+          "Schl",
+          "School",
+          "Team",
+          "TM",
+          "ORG"
+      ],
+      "comp": [
+          "COMP",
+          "Competition"
+      ],
+      "hsc": [
+          "HSC",
+          "Class"
+      ],
+      "lev": [
+          "Lev",
+          "Level",
+          "League",
+          "Lg"
+      ],
+      "pa": [
+          "PA"
+      ],
+      "ab": [
+          "AB"
+      ],
+      "h": [
+          "H"
+      ],
+      "hr": [
+          "HR"
+      ],
+      "bb": [
+          "BB"
+      ],
+      "k": [
+          "K",
+          "SO"
+      ],
+      "avg": [
+          "AVG",
+          "BA"
+      ],
+      "obp": [
+          "OBP"
+      ],
+      "slg": [
+          "SLG"
+      ],
+      "ops": [
+          "OPS"
+      ],
+      "ops_plus": [
+          "OPS+"
+      ],
+      "ip": [
+          "IP"
+      ],
+      "bf": [
+          "BF",
+          "TBF"
+      ],
+      "g": [
+          "G"
+      ],
+      "gs": [
+          "GS"
+      ],
+      "era": [
+          "ERA"
+      ],
+      "era_plus": [
+          "ERA+"
+      ],
+      "fip": [
+          "FIP"
+      ],
+      "fip_minus": [
+          "FIP-"
+      ],
+      "whip": [
+          "WHIP"
+      ],
+      "k9": [
+          "K/9",
+          "SO/9"
+      ],
+      "bb9": [
+          "BB/9"
+      ],
+      "kbb_pct": [
+          "K%-BB%",
+          "K-BB%",
+          "K%-BB"
+      ],
+      "woba": [
+          "wOBA"
+      ],
+      "iso_col": [
+          "ISO"
+      ],
+      "bb_pct_col": [
+          "BB%"
+      ],
+      "k_pct_col": [
+          "K%"
+      ],
+      "sb": [
+          "SB"
+      ],
+      "babip": [
+          "BABIP"
+      ],
+      "siera": [
+          "SIERA"
+      ],
+      "hr9": [
+          "HR/9"
+      ],
+      "bats": [
+          "B",
+          "Bats"
+      ],
+      "throws": [
+          "T",
+          "Throws"
+      ]
   },
 
   "ratings_aliases": {
-    "first": ["FirstName", "First Name", "First"],
-    "last": ["LastName", "Last Name", "Last"],
-    "position": ["Position", "POS"],
-    "stuff_pot": ["Stuff Pot.", "Stuff Pot", "StuffPot", "Stuff Potential", "Stuff Ptnl"],
-    "move_pot": ["Move Pot", "Move Pot.", "Movement Pot", "Movement Pot.", "Movement Potential", "Movement Ptnl"],
-    "control_pot": ["Control Pot", "Control Pot.", "Control Potential", "Control Ptnl"],
-    "contact_pot": ["Contact Pot", "Contact Pot.", "Contact Potential", "Contact Ptnl"],
-    "power_pot": ["Power Pot", "Power Pot.", "Power Potential", "Power Ptnl"],
-    "gap_pot": ["Gap Pot", "Gap Pot.", "Gap Potential", "Gap Ptnl"],
-    "eye_pot": ["Eye Pot", "Eye Pot.", "Eye Potential", "Eye Ptnl"],
-    "ks_pot": ["Ks Pot", "Ks Pot.", "K Pot", "Avoid K Pot", "Avoid Ks Pot", "Strikeouts Pot", "Ks Potential"],
-    "babip_pot": ["BABIP Pot", "BABIP Pot.", "BABIP Potential", "BABIP Ptnl"]
+      "first": [
+          "FirstName",
+          "First Name",
+          "First"
+      ],
+      "last": [
+          "LastName",
+          "Last Name",
+          "Last"
+      ],
+      "position": [
+          "Position",
+          "POS"
+      ],
+      "stuff_pot": [
+          "Stuff Pot.",
+          "Stuff Pot",
+          "StuffPot",
+          "Stuff Potential",
+          "Stuff Ptnl"
+      ],
+      "move_pot": [
+          "Move Pot",
+          "Move Pot.",
+          "Movement Pot",
+          "Movement Pot.",
+          "Movement Potential",
+          "Movement Ptnl"
+      ],
+      "control_pot": [
+          "Control Pot",
+          "Control Pot.",
+          "Control Potential",
+          "Control Ptnl"
+      ],
+      "contact_pot": [
+          "Contact Pot",
+          "Contact Pot.",
+          "Contact Potential",
+          "Contact Ptnl"
+      ],
+      "power_pot": [
+          "Power Pot",
+          "Power Pot.",
+          "Power Potential",
+          "Power Ptnl"
+      ],
+      "gap_pot": [
+          "Gap Pot",
+          "Gap Pot.",
+          "Gap Potential",
+          "Gap Ptnl"
+      ],
+      "eye_pot": [
+          "Eye Pot",
+          "Eye Pot.",
+          "Eye Potential",
+          "Eye Ptnl"
+      ],
+      "ks_pot": [
+          "Ks Pot",
+          "Ks Pot.",
+          "K Pot",
+          "Avoid K Pot",
+          "Avoid Ks Pot",
+          "Strikeouts Pot",
+          "Ks Potential"
+      ],
+      "babip_pot": [
+          "BABIP Pot",
+          "BABIP Pot.",
+          "BABIP Potential",
+          "BABIP Ptnl"
+      ]
   }
 }

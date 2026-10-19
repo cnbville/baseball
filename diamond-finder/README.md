@@ -3,7 +3,7 @@
 Finds OOTP 27 "diamonds in the rough": players whose stats are strong for their age and level but whose scouting grades are lukewarm.
 
 - `diamond_finder.py`: the analysis (standard library only). Command line: `python3 diamond_finder.py --stats stats.csv --ratings ratings.csv --out results`
-- `app.py`: the Mac window. Built into `DiamondFinder.dmg` by `.github/workflows/build-mac.yml`, published as a `diamond-finder-v<version>` GitHub release. Latest download: https://github.com/cnbville/baseball/releases/latest/download/DiamondFinder.dmg
+- `app.py`, `bridge.py`, `ui/`: the Mac window. A native WebKit window (pywebview) showing `ui/index.html`, styled with the Showtime design system (`ui/showtime.css`, Archivo font bundled in `ui/fonts`). `bridge.py` is the Python side the page calls. Built into `DiamondFinder.dmg` by `.github/workflows/build-mac.yml`, published as a `diamond-finder-v<version>` GitHub release. Latest download: https://github.com/cnbville/baseball/releases/latest/download/DiamondFinder.dmg
 - `presets.json`: every cutoff and weight. The app copies it to `~/Library/Application Support/Diamond Finder/presets.json` on first launch; edit that copy.
 
 Outputs: `diamond_finder_results.csv` (every scored player), `diamond_finder_report.md` and `.html` (top 25 per label).

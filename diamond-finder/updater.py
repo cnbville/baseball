@@ -1,6 +1,8 @@
 """Self-update from the GitHub releases of cnbville/baseball."""
 import json
 import os
+import re
+import shlex
 import ssl
 import subprocess
 import sys
@@ -26,8 +28,8 @@ def _ver(s):
     s = s.lstrip("vV").split("-v")[-1].lstrip("vV")
     out = []
     for part in s.split("."):
-        digits = "".join(ch for ch in part if ch.isdigit())
-        out.append(int(digits or 0))
+        m = re.match(r"\d+", part)  # "0-rc1" -> 0, so a pre-release never sorts above its final release
+        out.append(int(m.group()) if m else 0)
     return tuple(out)
 
 
@@ -61,8 +63,11 @@ def install(url, progress=lambda msg: None):
     app = current_app_path()
     if not app:
         raise RuntimeError("Updates only work from the installed app.")
-    if app.startswith("/Volumes/") or not os.access(os.path.dirname(app), os.W_OK):
+    if app.startswith("/Volumes/"):
         raise RuntimeError("Drag Diamond Finder into your Applications folder first, then update from there.")
+    if not os.access(os.path.dirname(app), os.W_OK):
+        raise RuntimeError("Your Mac account isn't allowed to replace apps in that folder. "
+                           "Download the new version from GitHub and drag it into Applications instead.")
     work = tempfile.mkdtemp(prefix="dfupdate")
     dmg = os.path.join(work, ASSET)
     progress("Downloading update…")
@@ -77,19 +82,36 @@ def install(url, progress=lambda msg: None):
     script = os.path.join(work, "swap.sh")
     with open(script, "w") as f:
         f.write(f"""#!/bin/bash
-set -e
+# Swap in the new app once Diamond Finder has quit. The old copy is only removed after the new one is fully in place.
+APP={shlex.quote(app)}
+WORK={shlex.quote(work)}
+mkdir -p "$HOME/Library/Logs"
+exec >>"$HOME/Library/Logs/Diamond Finder update.log" 2>&1
+echo "--- $(date) updating $APP"
 while kill -0 {os.getpid()} 2>/dev/null; do sleep 0.5; done
 MNT=$(mktemp -d)
-hdiutil attach -nobrowse -quiet -mountpoint "$MNT" "{dmg}"
-NEW="$MNT/Diamond Finder.app"
-if [ -d "$NEW" ]; then
-  rm -rf "{app}.old" && mv "{app}" "{app}.old"
-  ditto "$NEW" "{app}" && rm -rf "{app}.old" || mv "{app}.old" "{app}"
-  xattr -dr com.apple.quarantine "{app}" 2>/dev/null || true
+if hdiutil attach -nobrowse -quiet -mountpoint "$MNT" "$WORK/{ASSET}"; then
+  NEW="$MNT/Diamond Finder.app"
+  rm -rf "$APP.new" "$APP.old"
+  if [ -d "$NEW" ] && ditto "$NEW" "$APP.new"; then
+    if mv "$APP" "$APP.old" && mv "$APP.new" "$APP"; then
+      rm -rf "$APP.old"
+      xattr -dr com.apple.quarantine "$APP" || true
+      echo "updated"
+    else
+      [ -d "$APP" ] || mv "$APP.old" "$APP"
+      echo "swap failed, kept the old version"
+    fi
+  else
+    echo "copy failed, kept the old version"
+  fi
+  rm -rf "$APP.new"
+  hdiutil detach -quiet "$MNT" || true
+else
+  echo "could not open the downloaded dmg"
 fi
-hdiutil detach -quiet "$MNT" || true
-open "{app}"
-rm -rf "{work}"
+open "$APP"
+rm -rf "$WORK"
 """)
     os.chmod(script, 0o755)
     subprocess.Popen(["/bin/bash", script], start_new_session=True,

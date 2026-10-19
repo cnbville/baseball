@@ -21,8 +21,10 @@ LABEL_ORDER = ["Diamond in the rough", "Confirmed", "Overachiever trap", "Raw to
 STAT_INFO = {
     # key: (display name, lower_is_better, format, plain-English meaning)
     "kbb_pct": ("K%-BB%", False, "{:.1f}",
-                "strikeouts minus walks, as a share of batters faced. The single best quick read on a pitcher: "
-                "he misses bats and doesn't give free passes. Think of it as an FM striker's xG minus misses."),
+                "strikeouts minus walks, per 100 batters faced (29.0 = 29 more strikeouts than walks for every 100 "
+                "batters). The single best quick read on a pitcher: he beats hitters on his own and doesn't give away "
+                "free bases, like a centre-back who wins every duel and never gives away a foul. About 14 is MLB "
+                "average; 20+ is excellent."),
     "fip_minus": ("FIP-", True, "{:.0f}",
                   "Fielding Independent Pitching, scaled so 100 is average and lower is better (80 = 20% better "
                   "than average). It only counts what the pitcher controls: strikeouts, walks and home runs."),
@@ -41,10 +43,25 @@ STAT_INFO = {
     "iso": ("ISO", False, "{:.3f}",
             "Isolated Power, slugging minus batting average: pure extra-base power (doubles, triples, home runs). "
             ".150 is decent, .250+ is big power."),
+    "woba": ("wOBA", False, "{:.3f}",
+             "weighted On-Base Average: like OPS, but every way of reaching base is weighted by how many runs it is "
+             "really worth (a home run counts more than a walk). The best single number for a hitter's bat. "
+             "Same scale as on-base percentage: .320 is ordinary, .400+ is excellent."),
+    "sb_rate": ("SB/100", False, "{:.1f}",
+                "stolen bases per 100 plate appearances: speed that turns into extra bases, like a winger who "
+                "beats his man."),
+    "siera": ("SIERA", True, "{:.2f}",
+              "Skill-Interactive ERA: an estimate of the ERA he deserves from strikeouts, walks and the type of "
+              "contact he allows. A cleaner skill read than ERA. Lower is better."),
+    "p_k_pct": ("K% (pitcher)", False, "{:.1f}%",
+                "strikeout rate for a pitcher: the share of batters he strikes out. Pure swing-and-miss stuff, the closest thing "
+                "to a scout's 'stuff' grade in the numbers. Higher is better; 25%+ is strong."),
+    "hr9": ("HR/9", True, "{:.1f}",
+            "home runs allowed per 9 innings: how often hitters really square him up. Lower is better."),
     "bb_pct": ("BB%", False, "{:.1f}%",
                "Walk rate, walks per plate appearance: plate discipline and pitch recognition. 10%+ is good."),
-    "k_pct": ("K%", True, "{:.1f}%",
-              "Strikeout rate, strikeouts per plate appearance. Lower is better; it shows contact skill. "
+    "k_pct": ("K% (hitter)", True, "{:.1f}%",
+              "Strikeout rate for a hitter: how often he strikes out per trip to the plate. Lower is better; it shows contact skill. "
               "Under 15% is good, over 28% is a worry."),
 }
 
@@ -130,24 +147,44 @@ def ordinal(n):
 
 # ----------------------------------------------------------------- column mapping
 class Columns:
+    """Maps the names we need to the user's real columns.
+
+    OOTP puts batting, pitching and fielding side by side in one export and adds _1, _2 to repeated names.
+    The suffix alone doesn't say which block a copy belongs to (IP is pitching but IP_1 is fielding), so
+    each copy is placed by position: hitters read the copy before the pitching block, pitchers the copy
+    inside it (between the first pitching-only column and the fielding block).
+    """
+    PITCH_MARKERS = ("ip", "era", "whip", "w", "bf")
+    FIELD_MARKERS = ("tc", "po", "zr", "pos_1")
+
     def __init__(self, header, aliases):
         self.header = header
-        self.by_norm = {}
+        copies = {}
         for i, h in enumerate(header):
-            self.by_norm.setdefault(norm_header(h), i)
-        self.map = {}
+            n = norm_header(h)
+            copies.setdefault(re.sub(r"_\d+$", "", n), []).append(i)
+        firsts = {norm_header(h): i for i, h in reversed(list(enumerate(header)))}
+        marks = [firsts[m] for m in self.PITCH_MARKERS if m in firsts]
+        self.pitch_start = min(marks) if marks else None
+        while self.pitch_start and re.search(r"_\d+$", norm_header(header[self.pitch_start - 1])):
+            self.pitch_start -= 1  # the block opens with its own copies of shared names (G_1, GS_1)
+        fmarks = [firsts[m] for m in self.FIELD_MARKERS if m in firsts and (self.pitch_start is None or firsts[m] > self.pitch_start)]
+        self.field_start = min(fmarks) if fmarks else len(header)
+        self.map, self.pitch_map = {}, {}
         for key, names in aliases.items():
             for n in names:
-                idx = self.by_norm.get(norm_header(n))
-                if idx is not None:
-                    self.map[key] = idx
-                    break
-        # pitching copies of duplicate names (K_1, BB_1, HR_1, G_1 ...)
-        self.pitch_map = {}
-        for key, idx in self.map.items():
-            alt = self.by_norm.get(norm_header(header[idx]) + "_1")
-            if alt is not None:
-                self.pitch_map[key] = alt
+                idxs = copies.get(norm_header(n))
+                if not idxs:
+                    continue
+                if self.pitch_start is None:
+                    self.map[key] = idxs[0]
+                else:
+                    bat = [i for i in idxs if i < self.pitch_start]
+                    pit = [i for i in idxs if self.pitch_start <= i < self.field_start]
+                    self.map[key] = bat[0] if bat else (pit[0] if pit else idxs[0])
+                    if pit and pit[0] != self.map[key]:
+                        self.pitch_map[key] = pit[0]
+                break
 
     def get(self, row, key, pitcher=False):
         idx = self.pitch_map.get(key) if pitcher else None
@@ -250,7 +287,9 @@ def analyse(stats_path, ratings_path=None, presets=None, out_dir=None, log=print
 
     # --- report column mapping
     mapping = {k: cols.describe(k) for k in presets["column_aliases"] if cols.has(k)}
-    missing = [k for k in presets["column_aliases"] if not cols.has(k)]
+    important = presets.get("important_columns", list(presets["column_aliases"]))
+    missing = [k for k in presets["column_aliases"] if not cols.has(k) and k in important]
+    missing_optional = [k for k in presets["column_aliases"] if not cols.has(k) and k not in important]
     for need in ("pos", "name"):
         if need not in cols.map:
             raise ValueError(f"Could not find a '{need}' column. Header was: {', '.join(h.strip() for h in header)}")
@@ -282,17 +321,29 @@ def analyse(stats_path, ratings_path=None, presets=None, out_dir=None, log=print
                 role = "SP" if (gs is not None and gg and gs / gg >= 0.5) else "RP"
                 if gs is None:
                     role = "SP" if (ip and gg and ip / gg >= 3.0) else "RP"
+            pk = g("k_pct_col")
+            if pk is None and bf and k is not None:
+                pk = 100.0 * k / bf
             p.update(sample=ip, sample_unit="IP", role=role, group=f"{level} {role}",
+                     throws=(cols.get(r, "throws") or "").strip().upper(),
                      stats={"kbb_pct": kbb, "fip_minus": g("fip_minus"), "fip": g("fip"),
-                            "whip": g("whip"), "era_plus": g("era_plus")})
+                            "whip": g("whip"), "era_plus": g("era_plus"), "siera": g("siera"),
+                            "p_k_pct": pk, "hr9": g("hr9"), "era": g("era"), "babip": g("babip")})
         else:
             pa = g("pa")
             k, bb, avg, slg = g("k"), g("bb"), g("avg"), g("slg")
+            iso, bbp, kp, sb = g("iso_col"), g("bb_pct_col"), g("k_pct_col"), g("sb")
+            if iso is None and slg is not None and avg is not None:
+                iso = slg - avg
+            if bbp is None and pa and bb is not None:
+                bbp = 100.0 * bb / pa
+            if kp is None and pa and k is not None:
+                kp = 100.0 * k / pa
             p.update(sample=pa, sample_unit="PA", group=level,
-                     stats={"ops_plus": g("ops_plus"), "ops": g("ops"),
-                            "iso": (slg - avg) if slg is not None and avg is not None else None,
-                            "bb_pct": 100.0 * bb / pa if pa and bb is not None else None,
-                            "k_pct": 100.0 * k / pa if pa and k is not None else None})
+                     bats=(cols.get(r, "bats") or "").strip().upper(),
+                     stats={"ops_plus": g("ops_plus"), "ops": g("ops"), "woba": g("woba"), "iso": iso,
+                            "bb_pct": bbp, "k_pct": kp, "babip": g("babip"),
+                            "sb_rate": 100.0 * sb / pa if pa and sb is not None else None})
         players.append(p)
 
     # --- KBB%: OOTP sometimes writes it as a fraction
@@ -319,30 +370,27 @@ def analyse(stats_path, ratings_path=None, presets=None, out_dir=None, log=print
     # --- choose metrics (missing / constant fallbacks)
     pw = dict(presets["pitcher_weights"])
     hw = dict(presets["hitter_weights"])
-    if pitchers:
-        if is_constant([p["stats"]["era_plus"] for p in pitchers]) and cols.has("era_plus"):
-            notes.append("ERA+ is the same for every pitcher (OOTP leaves it at 100 for amateurs), so it was ignored.")
-        if "fip_minus" in pw and is_constant([p["stats"]["fip_minus"] for p in pitchers]):
-            why = "missing" if not cols.has("fip_minus") else "the same for every pitcher"
-            if not is_constant([p["stats"]["fip"] for p in pitchers]):
-                pw["fip"] = pw.pop("fip_minus")
-                notes.append(f"FIP- was {why}, so plain FIP was used in its place.")
+    if pitchers and cols.has("era_plus") and is_constant([p["stats"]["era_plus"] for p in pitchers]):
+        notes.append("ERA+ is the same for every pitcher (OOTP leaves it at 100 for amateurs), so it was ignored.")
+    fallbacks = presets.get("fallbacks", {})
+    for side, weights, group in (("pitchers", pw, pitchers), ("hitters", hw, hitters)):
+        if not group:
+            continue
+        for key in list(weights):
+            if not is_constant([p["stats"].get(key) for p in group]):
+                continue
+            wt = weights.pop(key)
+            why = "the same for every one of the " + side if any(p["stats"].get(key) is not None for p in group) \
+                else "missing"
+            family = lambda k: {"fip_minus": "fip", "ops_plus": "ops"}.get(k, k)
+            taken = {family(k) for k in weights}
+            sub = next((f for f in fallbacks.get(key, []) if family(f) not in taken
+                        and not is_constant([p["stats"].get(f) for p in group])), None)
+            if sub:
+                weights[sub] = wt
+                notes.append(f"{STAT_INFO[key][0]} was {why}, so {STAT_INFO[sub][0]} was used in its place.")
             else:
-                pw.pop("fip_minus")
-                notes.append(f"FIP- was {why} and FIP was unusable too; its weight was spread over the other stats.")
-        for key in list(pw):
-            if is_constant([p["stats"][key] for p in pitchers]):
-                pw.pop(key)
-                notes.append(f"{STAT_INFO[key][0]} was missing or constant for pitchers and was dropped.")
-    if hitters:
-        if "ops_plus" in hw and is_constant([p["stats"]["ops_plus"] for p in hitters]):
-            why = "missing" if not cols.has("ops_plus") else "the same for every hitter"
-            hw["ops"] = hw.pop("ops_plus")
-            notes.append(f"OPS+ was {why}, so plain OPS was used in its place.")
-        for key in list(hw):
-            if is_constant([p["stats"][key] for p in hitters]):
-                hw.pop(key)
-                notes.append(f"{STAT_INFO[key][0]} was missing or constant for hitters and was dropped.")
+                notes.append(f"{STAT_INFO[key][0]} was {why} and was dropped; its weight went to the other stats.")
 
     # --- per-group scoring
     groups = {}
@@ -350,6 +398,9 @@ def analyse(stats_path, ratings_path=None, presets=None, out_dir=None, log=print
         groups.setdefault(p["group"], []).append(p)
     comp_mult = {k.lower(): v for k, v in presets["competition_multipliers"].items()}
     agecfg = presets["age"]
+    pos_bonus = {k.upper(): v for k, v in presets.get("position_bonus", {}).items()}
+    lefty = presets.get("lefty_pitcher_bonus", 0)
+    luckcfg = presets.get("luck", {"hitter_points_per_010": 0, "cap": 0})
     unknown_comp = set()
     small = []
     for gname, members in groups.items():
@@ -390,12 +441,24 @@ def analyse(stats_path, ratings_path=None, presets=None, out_dir=None, log=print
                 m["age_bonus"] = max(-agecfg["cap"], min(agecfg["cap"], b))
             else:
                 m["age_bonus"] = 0.0
-            m["diamond"] = score + m["age_bonus"]
             m["weights"] = weights
+        babips = [m["stats"].get("babip") for m in members if m["stats"].get("babip") is not None]
+        bab_med = statistics.median(babips) if babips else None
+        for m in members:
+            m["pos_bonus"] = 0.0 if m["is_pitcher"] else float(pos_bonus.get(m["pos"], 0))
+            m["lefty_bonus"] = float(lefty) if m["is_pitcher"] and m.get("throws") == "L" else 0.0
+            m["luck_adj"] = 0.0
+            b = m["stats"].get("babip")
+            if not m["is_pitcher"] and bab_med is not None and b is not None and luckcfg.get("hitter_points_per_010", 0):
+                adj = -(b - bab_med) / 0.010 * luckcfg["hitter_points_per_010"]
+                m["luck_adj"] = max(-luckcfg["cap"], min(luckcfg["cap"], adj))
+                m["babip_median"] = bab_med
+            m["diamond"] = m["stat_score"] + m["age_bonus"] + m["pos_bonus"] + m["lefty_bonus"] + m["luck_adj"]
     if small:
         notes.append("Small groups, so percentiles there are rough: " + ", ".join(sorted(small)) + ".")
     if unknown_comp:
-        notes.append("Unrecognised competition values treated as Average: " + ", ".join(sorted(unknown_comp)) + ".")
+        notes.append("Some players had no usable competition level (" + ", ".join(sorted(unknown_comp)) +
+                     "), so they were treated as Average.")
     if not cols.has("comp"):
         notes.append("No COMP column, so no competition adjustment was applied.")
     if not cols.has("hsc") and not cols.has("lev"):
@@ -464,6 +527,7 @@ def analyse(stats_path, ratings_path=None, presets=None, out_dir=None, log=print
         elif s >= L["stat_standout"]["stat_min"] and a >= L["stat_standout"]["age_bonus_min"]:
             lab = "Stat standout"
         p["label"] = lab
+        p["era_fip_note"] = presets.get("luck", {}).get("pitcher_era_fip_note", 99)
         p["reasons"] = reasons(p)
 
     eligible.sort(key=lambda p: -p["diamond"])
@@ -472,6 +536,7 @@ def analyse(stats_path, ratings_path=None, presets=None, out_dir=None, log=print
 
     result = {
         "players": eligible, "skipped": skipped, "notes": notes, "mapping": mapping, "missing": missing,
+        "missing_optional": missing_optional,
         "ratings_info": ratings_info, "have_scout": have_scout, "pitcher_weights": pw, "hitter_weights": hw,
         "total_rows": len(players), "presets": presets,
     }
@@ -490,8 +555,10 @@ def reasons(p):
     for v, k in ranked:
         disp, _, fmt, _ = STAT_INFO[k]
         val = p["stats"][k]
-        top = max(1, int(round(100 - v)))
-        out.append(f"{disp} {fmt.format(val)}, top {top}% of {p['group']}")
+        if v >= 50:
+            out.append(f"{disp} {fmt.format(val)}, top {max(1, int(round(100 - v)))}% of {p['group']}")
+        else:
+            out.append(f"{disp} {fmt.format(val)}, below average for {p['group']} (better than {int(round(v))}%)")
     if p["age"] is not None and p["median_age"] is not None:
         diff = p["median_age"] - p["age"]
         if abs(diff) < 0.05:
@@ -501,10 +568,29 @@ def reasons(p):
             out.append(f"{abs(diff):g} yr {word} than {p['group']} median ({p['median_age']:g})")
     if p["comp"].lower() in ("poor", "fair"):
         out.append(f"{p['comp']} competition, stats discounted")
+    b = p.get("pos_bonus", 0)
+    if b >= 3:
+        out.append(f"plays {p['pos']}, a premium defensive position ({b:+g})")
+    elif b > 0:
+        out.append(f"plays {p['pos']}, a harder-than-average position to fill ({b:+g})")
+    elif b < 0:
+        out.append(f"plays {p['pos']}, a bat-first position that's easy to fill ({b:+g})")
+    if p.get("lefty_bonus", 0):
+        out.append(f"left-handed pitcher ({p['lefty_bonus']:+g})")
+    if abs(p.get("luck_adj", 0)) >= 1:
+        b, med = p["stats"]["babip"], p["babip_median"]
+        if p["luck_adj"] < 0:
+            out.append(f"BABIP {b:.3f} vs a typical {med:.3f}: some luck in his numbers ({p['luck_adj']:+.1f})")
+        else:
+            out.append(f"BABIP {b:.3f} vs a typical {med:.3f}: unlucky, better than he looks ({p['luck_adj']:+.1f})")
+    era, fip = p["stats"].get("era"), p["stats"].get("fip")
+    if p["is_pitcher"] and era is not None and fip is not None and era - fip >= p.get("era_fip_note", 99):
+        out.append(f"ERA {era:.2f} is {era - fip:.1f} runs worse than his FIP {fip:.2f}: bad luck is hiding him")
     if p.get("scout") is not None:
-        out.append(f"scout {ordinal(p['scout'])} pct")
-    elif "scout" in p:
-        out.append("no scout grade")
+        out.append(f"scouts rate his potential above {int(round(p['scout']))}% of the "
+                   f"{'pitchers' if p['is_pitcher'] else 'hitters'} here")
+    elif "scout_raw" in p:  # a ratings file was given but his name wasn't in it
+        out.append("no scout grade matched his name")
     return "; ".join(out)
 
 
@@ -512,20 +598,21 @@ def fmt_sample(p):
     if p["sample_unit"] == "IP":
         whole = int(p["sample"])
         thirds = int(round((p["sample"] - whole) * 3))
-        return f"{whole}.{thirds} IP" if thirds else f"{whole} IP"
-    return f"{int(p['sample'])} PA"
+        return f"{whole}{'⅓' if thirds == 1 else '⅔' if thirds == 2 else ''} innings"
+    return f"{int(p['sample'])} plate appearances"
 
 
 def write_csv(players, path):
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
         w.writerow(["Rank", "Label", "Name", "POS", "Age", "Group", "School", "Class", "Comp", "Sample",
-                    "DiamondScore", "StatScore", "AgeBonus", "ScoutPct", "Reasons"])
+                    "DiamondScore", "StatScore", "AgeBonus", "PosBonus", "LeftyBonus", "LuckAdj", "ScoutPct", "Reasons"])
         for p in players:
             w.writerow([p["rank"], p["label"], p["name"], p["pos"],
                         "" if p["age"] is None else f"{p['age']:g}", p["group"], p["school"], p["class"],
                         p["comp"], fmt_sample(p), f"{p['diamond']:.1f}", f"{p['stat_score']:.1f}",
-                        f"{p['age_bonus']:+.1f}", "" if p["scout"] is None else f"{p['scout']:.0f}",
+                        f"{p['age_bonus']:+.1f}", f"{p['pos_bonus']:+.1f}", f"{p['lefty_bonus']:+.1f}",
+                        f"{p['luck_adj']:+.1f}", "" if p["scout"] is None else f"{p['scout']:.0f}",
                         p["reasons"]])
     return path
 
@@ -566,12 +653,13 @@ def write_report(res, path, stats_path, ratings_path):
             if not part:
                 continue
             lines += [f"### {side}", "",
-                      "| # | Name | POS | Age | Group | School | Comp | Sample | Diamond | Stat | Age+ | Scout | Reasons |",
-                      "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+                      "| # | Name | POS | Age | Group | School | Comp | Sample | Diamond | Stat | Age+ | Extras | Scout | Reasons |",
+                      "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
             for p in part:
-                lines.append("| {} | {} | {} | {} | {} | {} | {} | {} | {:.1f} | {:.1f} | {:+.0f} | {} | {} |".format(
+                lines.append("| {} | {} | {} | {} | {} | {} | {} | {} | {:.1f} | {:.1f} | {:+g} | {:+.1f} | {} | {} |".format(
                     p["rank"], p["name"], p["pos"], "" if p["age"] is None else f"{p['age']:g}", p["group"],
-                    p["school"], p["comp"], fmt_sample(p), p["diamond"], p["stat_score"], p["age_bonus"],
+                    p["school"], p["comp"], fmt_sample(p), p["diamond"], p["stat_score"], round(p["age_bonus"], 1),
+                    p["pos_bonus"] + p["lefty_bonus"] + p["luck_adj"],
                     "" if p["scout"] is None else f"{p['scout']:.0f}", p["reasons"].replace("|", "/")))
             lines.append("")
     lines += ["## Column mapping", "", "| Needed | Found in your file |", "|---|---|"]
@@ -582,10 +670,15 @@ def write_report(res, path, stats_path, ratings_path):
     lines += ["## Stats used, in plain words", ""]
     for k in list(res["pitcher_weights"]) + list(res["hitter_weights"]):
         lines.append(f"- **{STAT_INFO[k][0]}**: {STAT_INFO[k][3]}")
-    lines += ["", "**Stat score** is 0-100 with 50 = average for the player's own group, shrunk toward 50 when the "
+    lines += ["", "**Diamond score** = stat score + age bonus + extras (position bonus + lefty bonus + luck check). "
+              "**Stat score** is 0-100 with 50 = average for the player's own group, shrunk toward 50 when the "
               "sample is small and adjusted for the level of competition. **Age bonus** rewards players younger "
-              "than their group's typical age (like an FM wonderkid doing it a year early). **Scout** is where the "
-              "game's scouts rank his potential among the other scored players, 0-100.", ""]
+              "than their group's typical age (like an FM wonderkid doing it a year early). **Position bonus** "
+              "favours hitters at the hardest positions to fill (catcher, shortstop, centre field), the way a "
+              "good goalkeeper or ball-playing centre-back is harder to find than another striker. **Lefty bonus** is for "
+              "left-handed pitchers, who are scarcer. **Luck check** (hitters) trims players whose BABIP, the "
+              "batting average on balls in play, is far above their group's (likely luck) and lifts those far below. "
+              "**Scout** is where the game's scouts rank his potential among the other scored players, 0-100.", ""]
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     return path

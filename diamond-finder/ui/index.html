@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Diamond Finder</title>
+<script>if (location.hash === "#light") document.documentElement.dataset.theme = "light";</script>
+<link rel="stylesheet" href="showtime.css">
+<link rel="stylesheet" href="app.css">
+</head>
+<body class="st">
+<div class="app">
+  <header class="st-top st-wrap">
+    <span class="st-brand"><svg class="brand-gem" viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3h10l4 6-9 12L3 9z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M3 9h18M9 3l3 6 3-6M12 9v12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" opacity=".6"/></svg>Diamond <span>Finder</span></span>
+    <nav class="st-tabs" role="tablist" aria-label="Screens">
+      <button role="tab" data-screen="setup" aria-selected="true">Scout</button>
+      <button role="tab" data-screen="results" aria-selected="false" disabled>Results</button>
+    </nav>
+    <div class="top-right">
+      <button id="updateBtn" class="st-btn glass small">Check for updates</button>
+      <span class="st-pill" id="version">v–</span>
+      <button class="st-icon-btn" id="themeBtn" aria-label="Switch theme" title="Switch light or dark">
+        <svg class="moon" viewBox="0 0 24 24" fill="currentColor"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>
+        <svg class="sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2" fill="currentColor" stroke="none"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="main">
+    <!-- ============ SCOUT: pick files and run ============ -->
+    <section id="setup" class="screen st-room setup-room">
+      <i></i><i></i><i></i>
+      <div class="setup-inner st-wrap">
+        <div class="setup-copy">
+          <span class="st-label">OOTP 27 · Scouting room</span>
+          <h1 class="st-wide">Find the diamonds</h1>
+          <p>Players whose numbers are better than their scouting reports. Pick your exports, and the numbers do the talking.</p>
+          <ol class="steps">
+            <li><span class="st-outline">1</span><span><b>Stats export</b><small>Player Search or the draft pool, with a stats view</small></span></li>
+            <li><span class="st-outline">2</span><span><b>Ratings export</b><small>Optional. Adds the scouts' opinion so diamonds can stand out</small></span></li>
+            <li><span class="st-outline">3</span><span><b>Find diamonds</b><small>Ranked results, reasons in plain words</small></span></li>
+          </ol>
+        </div>
+
+        <div class="setup-side">
+          <div class="st-glass st-panel setup-panel">
+            <div class="drop-hint">Drop your CSV here</div>
+            <h2>Your exports <small>Choose or drag in CSV files</small></h2>
+            <div class="file" data-kind="stats">
+              <span class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6"/></svg></span>
+              <span class="file-text"><b>Stats</b><small data-empty="Required: batting and pitching numbers">Required: batting and pitching numbers</small></span>
+              <button class="st-icon-btn clear" data-clear="stats" aria-label="Remove stats file" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+              <button class="st-btn glass small" data-choose="stats">Choose…</button>
+            </div>
+            <div class="file" data-kind="ratings">
+              <span class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M12 3l2.6 5.6 6 .7-4.5 4.1 1.2 6L12 16.4 6.7 19.4l1.2-6L3.4 9.3l6-.7z"/></svg></span>
+              <span class="file-text"><b>Scout ratings</b><small data-empty="Optional: the file starting with //id, del, team_id">Optional: the file starting with //id, del, team_id</small></span>
+              <button class="st-icon-btn clear" data-clear="ratings" aria-label="Remove ratings file" hidden><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+              <button class="st-btn glass small" data-choose="ratings">Choose…</button>
+            </div>
+            <div class="file" data-kind="out">
+              <span class="file-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M3 6h7l2 2h9v11H3z"/></svg></span>
+              <span class="file-text"><b>Save results to</b><small data-empty="Documents / Diamond Finder">Documents / Diamond Finder</small></span>
+              <button class="st-btn glass small" data-choose="out">Change…</button>
+            </div>
+            <div class="st-actions run-row">
+              <button id="runBtn" class="st-btn primary" disabled><svg viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>Find diamonds</button>
+              <button id="presetsBtn" class="st-btn glass">Edit presets</button>
+            </div>
+          </div>
+
+          <div class="st-glass st-now running" id="running" hidden>
+            <div class="st-now-who"><span class="st-mark running-mark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 3h10l4 6-9 12L3 9z" stroke-linejoin="round"/></svg></span><div><h1>Scouting</h1><p id="runningText">Comparing every player with his own group</p></div></div>
+            <div class="st-timer thinking"><span class="st-bar"><i></i></span></div>
+          </div>
+
+          <p class="st-flag error" id="setupError" role="alert" hidden></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ RESULTS ============ -->
+    <section id="results" class="screen" hidden>
+      <section class="st-hero res-hero" id="hero">
+        <div class="st-hero-art"></div><span class="st-outline" id="heroNum">1</span>
+        <div class="st-hero-copy st-wrap">
+          <div class="st-hero-meta" id="heroMeta"></div>
+          <h1 id="heroName"></h1>
+          <p class="st-hero-line" id="heroLine"></p>
+          <div class="st-actions" id="heroActions">
+            <button class="st-btn primary" id="heroView">See why</button>
+            <button class="st-btn glass" id="openReport">Open report</button>
+            <button class="st-btn glass" id="openCsv">Open CSV</button>
+          </div>
+        </div>
+      </section>
+
+      <div class="st-wrap res-body">
+        <div class="st-tiles" id="tiles"></div>
+
+        <div class="list-head">
+          <div class="st-tabs" role="tablist" id="labelTabs" aria-label="Labels"></div>
+          <div class="st-chips" id="sideChips" aria-label="Filter">
+            <button aria-pressed="true" data-side="all">All</button>
+            <button aria-pressed="false" data-side="p">Pitchers</button>
+            <button aria-pressed="false" data-side="h">Hitters</button>
+          </div>
+        </div>
+        <p class="label-explain" id="labelExplain"></p>
+        <div class="st-rows" id="rows"></div>
+        <div class="more-row"><button id="moreBtn" class="st-btn glass small" hidden>Show more</button></div>
+
+        <div class="info-grid">
+          <section class="card">
+            <h2>What the numbers mean</h2>
+            <dl class="glossary" id="glossary"></dl>
+            <dl class="glossary" id="scoreGlossary"></dl>
+            <h2 class="sub-h">Baseball basics</h2>
+            <dl class="glossary">
+              <dt>SP / RP</dt><dd>Starting pitcher (starts the game and throws the first five innings or more, about once every five games) and relief pitcher (comes on later for an inning or two, like an impact sub). Each is only compared with his own kind.</dd>
+              <dt>HS, JuCo, College</dt><dd>High school, junior college (a two-year college) and four-year college. "College SP" means college starting pitchers. Players are only compared within their own level.</dd>
+              <dt>Positions</dt><dd>C catcher, 1B / 2B / 3B first, second and third base, SS shortstop, LF / CF / RF left, centre and right field, DH designated hitter (bats but doesn't field).</dd>
+              <dt>Innings and plate appearances</dt><dd>Playing time. A full game is 9 innings; a hitter gets about 4 plate appearances a game. "86⅓ innings" means 86 innings plus one out.</dd>
+              <dt>ERA</dt><dd>Earned runs allowed per 9 innings, the classic pitching number. It depends on the fielders behind him and on luck, which is why FIP and SIERA are used for the score.</dd>
+              <dt>BABIP</dt><dd>Batting average on balls in play: how often a ball put in play becomes a hit. Over a short season it swings a lot on luck, so it's used as a luck check.</dd>
+            </dl>
+          </section>
+          <section class="card">
+            <h2>Notes from this run</h2>
+            <ul class="notes" id="notes"></ul>
+            <div id="missing"></div>
+            <details class="mapping">
+              <summary>Column mapping</summary>
+              <div class="st-table dense"><table><thead><tr><th>Needed</th><th>Found in your file</th></tr></thead><tbody id="mapping"></tbody></table></div>
+            </details>
+            <div class="st-actions"><button class="st-btn glass small" id="showFolder">Show in Finder</button><button class="st-btn glass small" id="newRun">New scouting run</button></div>
+          </section>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<div id="sheetHost"></div>
+<div class="banner-host" id="bannerHost"></div>
+<div class="toast-host" id="toastHost" aria-live="polite"></div>
+<script src="app.js"></script>
+</body>
+</html>

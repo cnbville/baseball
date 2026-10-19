@@ -1,234 +1,90 @@
-"""Diamond Finder: the Mac window around diamond_finder.py."""
-import html
+"""Diamond Finder: the Mac window. The page lives in ui/, the Python side in bridge.py."""
+import json
 import os
-import re
-import shutil
-import subprocess
-import sys
-import threading
-import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
 
-import diamond_finder as df
-import updater
-from version import __version__
+import webview
+from webview.dom import DOMEventHandler
 
-APP = "Diamond Finder"
-SUPPORT = os.path.expanduser(f"~/Library/Application Support/{APP}")
-DEFAULT_OUT = os.path.expanduser(f"~/Documents/{APP}")
+from bridge import APP, Api, bundled
+
+GROUND = {"dark": (7, 8, 11), "light": (245, 245, 247)}  # Showtime --ground, so the title bar melts into the page
 
 
-def bundled(name):
-    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base, name)
+def style_titlebar(window, theme):
+    """Hide the native title text and paint the title bar in the page's own colour."""
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+    except ImportError:  # not on a Mac
+        return
 
-
-def presets_path():
-    """Editable copy of presets.json, created on first launch."""
-    os.makedirs(SUPPORT, exist_ok=True)
-    p = os.path.join(SUPPORT, "presets.json")
-    if not os.path.exists(p):
-        shutil.copy(bundled("presets.json"), p)
-    return p
-
-
-def open_path(p):
-    subprocess.call(["open", p] if sys.platform == "darwin" else ["xdg-open", p])
-
-
-def md_to_html(md):
-    """Small converter for the report's own Markdown (headings, tables, bullets, bold, code)."""
-    def inline(s):
-        s = html.escape(s)
-        s = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", s)
-        return re.sub(r"`(.+?)`", r"<code>\1</code>", s)
-    out, in_table, in_list = [], False, False
-    for line in md.splitlines():
-        if line.startswith("|"):
-            cells = [c.strip() for c in line.strip().strip("|").split("|")]
-            if set("".join(cells)) <= set("-"):
-                continue
-            if not in_table:
-                out.append("<table><tr>" + "".join(f"<th>{inline(c)}</th>" for c in cells) + "</tr>")
-                in_table = True
-            else:
-                out.append("<tr>" + "".join(f"<td>{inline(c)}</td>" for c in cells) + "</tr>")
-            continue
-        if in_table:
-            out.append("</table>")
-            in_table = False
-        if line.startswith("- "):
-            if not in_list:
-                out.append("<ul>")
-                in_list = True
-            out.append(f"<li>{inline(line[2:])}</li>")
-            continue
-        if in_list:
-            out.append("</ul>")
-            in_list = False
-        m = re.match(r"(#+) (.*)", line)
-        if m:
-            n = len(m.group(1))
-            out.append(f"<h{n}>{inline(m.group(2))}</h{n}>")
-        elif line.strip():
-            out.append(f"<p>{inline(line.rstrip())}</p>")
-    if in_table:
-        out.append("</table>")
-    if in_list:
-        out.append("</ul>")
-    css = ("body{font:14px -apple-system,Helvetica,sans-serif;margin:24px;color:#222}"
-           "table{border-collapse:collapse;margin:8px 0 20px;font-size:12px}"
-           "th,td{border:1px solid #ccc;padding:4px 6px;vertical-align:top;text-align:left}"
-           "th{background:#f0f0f0}h2{margin-top:32px;border-bottom:2px solid #c41e3a}"
-           "@media(prefers-color-scheme:dark){body{background:#1e1e1e;color:#ddd}th{background:#333}"
-           "th,td{border-color:#555}}")
-    return f"<!doctype html><meta charset=utf-8><title>{APP} report</title><style>{css}</style>" + "\n".join(out)
-
-
-class App:
-    def __init__(self, root):
-        self.root = root
-        root.title(f"{APP} {__version__}")
-        root.geometry("820x600")
-        self.stats = tk.StringVar()
-        self.ratings = tk.StringVar()
-        self.out = tk.StringVar(value=DEFAULT_OUT)
-        self.result = None
-
-        f = ttk.Frame(root, padding=14)
-        f.pack(fill="both", expand=True)
-        f.columnconfigure(1, weight=1)
-        rows = [("Stats CSV (required)", self.stats, self.pick_stats),
-                ("Ratings CSV (optional)", self.ratings, self.pick_ratings),
-                ("Save results to", self.out, self.pick_out)]
-        for i, (lab, var, cmd) in enumerate(rows):
-            ttk.Label(f, text=lab).grid(row=i, column=0, sticky="w", pady=3)
-            ttk.Entry(f, textvariable=var).grid(row=i, column=1, sticky="ew", padx=6)
-            ttk.Button(f, text="Choose…", command=cmd).grid(row=i, column=2)
-
-        b = ttk.Frame(f)
-        b.grid(row=3, column=0, columnspan=3, sticky="w", pady=10)
-        self.run_btn = ttk.Button(b, text="Find diamonds", command=self.run)
-        self.run_btn.pack(side="left")
-        self.report_btn = ttk.Button(b, text="Open report", command=self.open_report, state="disabled")
-        self.report_btn.pack(side="left", padx=6)
-        self.csv_btn = ttk.Button(b, text="Open CSV", command=self.open_csv, state="disabled")
-        self.csv_btn.pack(side="left")
-        ttk.Button(b, text="Edit presets", command=lambda: open_path(presets_path())).pack(side="left", padx=6)
-        self.update_btn = ttk.Button(b, text="Check for updates", command=lambda: self.check_updates(True))
-        self.update_btn.pack(side="left")
-        self.update_info = None
-
-        self.text = tk.Text(f, wrap="word", height=20, font=("Menlo", 12))
-        self.text.grid(row=4, column=0, columnspan=3, sticky="nsew")
-        f.rowconfigure(4, weight=1)
-        self.say("Pick your OOTP stats export (Player Search or draft pool with a stats view), "
-                 "optionally the ratings export, then press Find diamonds.\n\n"
-                 f"Presets live in {presets_path()}. Press Edit presets to change cutoffs and weights.")
-
-        root.after(1500, self.check_updates)
-
-    # ------------------------------------------------------------- updates
-    def check_updates(self, manual=False):
-        def work():
-            try:
-                info = updater.check()
-            except Exception as e:
-                info = e
-            self.root.after(0, self.got_update, info, manual)
-        threading.Thread(target=work, daemon=True).start()
-
-    def got_update(self, info, manual):
-        if isinstance(info, Exception):
-            if manual:
-                messagebox.showerror(APP, f"Couldn't reach GitHub to check for updates:\n{info}")
+    def apply():
+        w = window.native
+        if w is None:
             return
-        if not info:
-            if manual:
-                messagebox.showinfo(APP, f"You're on the latest version ({__version__}).")
+        dark = theme != "light"
+        r, g, b = GROUND["dark" if dark else "light"]
+        colour = AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(r / 255, g / 255, b / 255, 1.0)
+        w.setTitlebarAppearsTransparent_(True)
+        w.setTitleVisibility_(AppKit.NSWindowTitleHidden)
+        w.setAppearance_(AppKit.NSAppearance.appearanceNamed_(
+            AppKit.NSAppearanceNameDarkAqua if dark else AppKit.NSAppearanceNameAqua))
+        w.setBackgroundColor_(colour)
+        try:  # pywebview paints the title bar container itself; repaint it to match
+            w.contentView().superview().subviews().lastObject().setBackgroundColor_(colour)
+        except Exception:
+            pass
+
+    AppHelper.callAfter(apply)
+
+
+def sniff_kind(path):
+    """A ratings export starts with '//id, del, team_id'; anything else is treated as stats."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(64).decode("utf-8-sig", "ignore").lstrip()
+    except OSError:
+        return None
+    return "ratings" if head.startswith("//") else "stats"
+
+
+def main():
+    api = Api()
+    theme = api.state()["theme"]
+    url = bundled("ui", "index.html") + ("#light" if theme == "light" else "")
+    window = webview.create_window(
+        APP, url=url, js_api=api, width=1200, height=820, min_size=(900, 640),
+        background_color="#f5f5f7" if theme == "light" else "#07080b",
+    )
+    api._window = window
+    api._on_theme = lambda t: style_titlebar(window, t)
+
+    def on_drop(event):
+        files = [f.get("pywebviewFullPath") for f in event.get("dataTransfer", {}).get("files", [])]
+        csvs = [p for p in files if p and p.lower().endswith((".csv", ".txt"))]
+        if not csvs:
+            window.evaluate_js(f"window.dfDropError({json.dumps('Drop a CSV export from OOTP (a file ending in .csv).')})")
             return
-        version, url, notes = info
-        self.update_btn.config(text=f"Update to {version}")
-        msg = f"Version {version} is available (you have {__version__})."
-        if notes.strip():
-            msg += "\n\nWhat's new:\n" + notes.strip()[:800]
-        msg += "\n\nInstall it now? The app will close and reopen by itself."
-        if messagebox.askyesno(APP, msg):
-            self.install_update(url)
+        for path in csvs[:2]:
+            kind = sniff_kind(path)
+            if kind:
+                api.set_pref(kind, path)
+                window.evaluate_js(f"window.dfDropped({json.dumps(kind)}, {json.dumps(path)})")
 
-    def install_update(self, url):
-        self.update_btn.config(state="disabled")
-        def work():
-            try:
-                updater.install(url, lambda m: self.root.after(0, self.say, m))
-                self.root.after(0, self.root.destroy)
-            except Exception as e:
-                self.root.after(0, self.update_failed, e)
-        threading.Thread(target=work, daemon=True).start()
+    hooked = []
 
-    def update_failed(self, e):
-        self.update_btn.config(state="normal")
-        messagebox.showerror(APP, f"Update didn't install:\n{e}")
-
-    def say(self, msg):
-        self.text.delete("1.0", "end")
-        self.text.insert("end", msg)
-
-    def pick_stats(self):
-        p = filedialog.askopenfilename(filetypes=[("CSV", "*.csv"), ("All files", "*")])
-        if p:
-            self.stats.set(p)
-
-    def pick_ratings(self):
-        p = filedialog.askopenfilename(filetypes=[("CSV", "*.csv"), ("All files", "*")])
-        if p:
-            self.ratings.set(p)
-
-    def pick_out(self):
-        p = filedialog.askdirectory()
-        if p:
-            self.out.set(p)
-
-    def run(self):
-        if not os.path.isfile(self.stats.get()):
-            messagebox.showerror(APP, "Choose a stats CSV first.")
+    def on_loaded():
+        style_titlebar(window, api.state()["theme"])
+        if hooked:
             return
-        self.run_btn.config(state="disabled")
-        self.say("Working…")
-        threading.Thread(target=self.work, daemon=True).start()
+        hooked.append(True)
+        doc = window.dom.document
+        doc.events.dragover += DOMEventHandler(lambda e: None, True, True)
+        doc.events.drop += DOMEventHandler(on_drop, True, True)
 
-    def work(self):
-        try:
-            res = df.analyse(self.stats.get(), self.ratings.get().strip() or None,
-                             df.load_presets(presets_path()), self.out.get())
-            html_path = os.path.splitext(res["report_path"])[0] + ".html"
-            with open(res["report_path"], encoding="utf-8") as f:
-                md = f.read()
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(md_to_html(md))
-            res["html_path"] = html_path
-            msg = df.summary_text(res) + "\n\nNotes:\n" + "\n".join("- " + n for n in res["notes"]) + \
-                f"\n\nSaved to {self.out.get()}"
-            self.root.after(0, self.done, res, msg)
-        except Exception as e:  # show any problem in the window
-            self.root.after(0, self.done, None, f"Something went wrong:\n{e}")
-
-    def done(self, res, msg):
-        self.result = res
-        self.say(msg)
-        self.run_btn.config(state="normal")
-        state = "normal" if res else "disabled"
-        self.report_btn.config(state=state)
-        self.csv_btn.config(state=state)
-
-    def open_report(self):
-        open_path(self.result["html_path"])
-
-    def open_csv(self):
-        open_path(self.result["csv_path"])
+    window.events.loaded += on_loaded
+    webview.start(http_server=True, debug=bool(os.environ.get("DF_DEBUG")))
 
 
 if __name__ == "__main__":
-    root = tk.Tk()
-    App(root)
-    root.mainloop()
+    main()
