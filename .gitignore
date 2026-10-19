@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+diamond-finder/build/
+diamond-finder/dist/
